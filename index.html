@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,height=device-height,initial-scale=1">
+  <title>Smart Wallets Only</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0b0b0c;
+      --fg: #e9e9ec;
+      --accent: #00ffae;
+      --dim: #555;
+      --font: 'JetBrains Mono', monospace;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin:0; padding:0; }
+    html, body {
+      height:100%; display:flex; flex-direction:column;
+      background:var(--bg); color:var(--fg);
+      font-family:var(--font); align-items:center; justify-content:center;
+    }
+    header {
+      position:absolute; top:1.5rem; left:50%; transform:translateX(-50%);
+      text-transform:uppercase; letter-spacing:1px; font-size:1rem;
+    }
+    .social {
+      position:absolute; top:1.5rem; right:2rem; display:flex; gap:1.25rem;
+    }
+    .social a {
+      text-decoration:none; color:var(--dim); font-size:0.85rem;
+      transition:color .2s;
+    }
+    .social a:hover { color:var(--accent); }
+    main {
+      width:100%; max-width:380px; display:flex; flex-direction:column; gap:1rem;
+    }
+    input {
+      background:transparent; border:none; border-bottom:1px solid #333;
+      padding:.75rem .5rem; color:var(--fg); font-size:0.9rem; outline:none;
+      transition:border-color .2s;
+    }
+    input:focus { border-color:var(--accent); }
+    button {
+      background:var(--accent); color:#000; padding:.65rem;
+      font-size:0.9rem; font-weight:600; border:none; border-radius:4px;
+      cursor:pointer; transition:background .2s;
+    }
+    button:hover { background:#00e0a0; }
+    .result-block {
+      background:#101010; padding:1rem; border-radius:8px;
+      font-size:.85rem; color:var(--fg); line-height:1.5;
+      white-space:pre-wrap; word-break:break-word; border:1px solid #222;
+    }
+    .error {
+      color:red; margin-top:.5rem; font-size:.85rem;
+    }
+  </style>
+</head>
+<body>
+  <header>Smart Wallets Only</header>
+  <div class="social">
+    <a href="https://twitter.com/yourprofile" target="_blank">Twitter</a>
+    <a href="https://t.me/yourchannel" target="_blank">Telegram</a>
+  </div>
+  <main>
+    <input id="walletInput" placeholder="Paste your Solana wallet..." autocomplete="off">
+    <button id="btn">Access</button>
+    <div id="feedback"></div>
+  </main>
+
+  <script type="module">
+    import { Connection, PublicKey } from 'https://cdn.jsdelivr.net/npm/@solana/web3.js@1.78.0/+esm';
+
+    const conn = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
+    const tokenListUrl = 'https://cdn.jsdelivr.net/npm/@solana/spl-token-registry@2.2.4/dist/main/solana.tokenlist.json';
+
+    let tokenMap = {};
+    fetch(tokenListUrl)
+      .then(res => res.json())
+      .then(data => data.tokens.forEach(t => tokenMap[t.address] = t));
+
+    async function fetchWalletData(wallet) {
+      const pubKey = new PublicKey(wallet);
+      const balance = (await conn.getBalance(pubKey)) / 1e9;
+      const accounts = await conn.getParsedTokenAccountsByOwner(pubKey, { programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') });
+
+      const tokens = accounts.value.map(acc => {
+        const info = acc.account.data.parsed.info;
+        const amount = parseInt(info.tokenAmount.amount) / (10 ** info.tokenAmount.decimals);
+        const meta = tokenMap[info.mint] || {};
+        return { symbol: meta.symbol || 'UNKNOWN', amount };
+      }).filter(t => t.amount > 0);
+
+      return { balance, tokens };
+    }
+
+    function display(data, wallet) {
+      const { balance, tokens } = data;
+      const enc = btoa(wallet.slice(0, 16)).slice(0, 12);
+      const status = enc.charCodeAt(0) % 2 === 0 ? '✅ Approved' : '❌ Denied';
+
+      document.getElementById('feedback').innerHTML = `
+        <div class="result-block">
+Wallet: ${wallet}
+Encrypted ID: ${enc}
+Status: ${status}
+Balance: ${balance.toFixed(4)} SOL
+Tokens:
+${tokens.map(t => `  • ${t.symbol}: ${t.amount}`).join('\n')}
+        </div>`;
+    }
+
+    document.getElementById('btn').onclick = async () => {
+      const input = document.getElementById('walletInput').value.trim();
+      const feedback = document.getElementById('feedback');
+      feedback.innerHTML = '';
+
+      if (!/^([1-9A-HJ-NP-Za-km-z]{32,44})$/.test(input)) {
+        feedback.innerHTML = '<div class="error">Invalid wallet address.</div>';
+        return;
+      }
+
+      try {
+        const data = await fetchWalletData(input);
+        display(data, input);
+      } catch (err) {
+        feedback.innerHTML = '<div class="error">Error fetching data.</div>';
+        console.error(err);
+      }
+    };
+  </script>
+</body>
+</html>
